@@ -1,0 +1,12 @@
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# Editores
+.vscode/
+.idea/
+
+# Python (servidor local, cuadernos de Colab)
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

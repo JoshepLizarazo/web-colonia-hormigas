@@ -5,7 +5,9 @@
 ![JavaScript](https://img.shields.io/badge/JavaScript-ES%20Modules-F7DF1E?logo=javascript&logoColor=black)
 ![Dependencias](https://img.shields.io/badge/dependencias-0-success)
 
-Autómata celular interactivo basado en **Optimización por Colonia de Hormigas (ACO)**. Dos colonias, negra y roja, compiten por la comida en un mundo de **500 × 500 celdas**. Ninguna hormiga "piensa": cada una solo mira su vecindad de 3 × 3 y se mueve según los gradientes de feromonas. Usted puede alterar el entorno en tiempo real con los pinceles.
+Autómata celular interactivo basado en **Optimización por Colonia de Hormigas (ACO)**. Dos colonias, negra y roja, conviven en un mundo de **500 × 500 celdas**, y usted puede alterar el entorno en tiempo real con los pinceles.
+
+El motor es un **port a JavaScript del motor NumPy del Subgrupo 3 (Sprint 3)**: mismas constantes, kernels, tabla de evaporación y reglas, en el mismo orden. Así se puede ver en el navegador, sin Colab, exactamente lo que calcula el motor en Python.
 
 > 📸 _Espacio para el GIF de la simulación (`assets/`)._
 
@@ -17,7 +19,7 @@ No requiere instalación ni compilación. Como usa módulos ES, se abre desde un
 python -m http.server 8000
 ```
 
-Luego abra `http://localhost:8000`. También funciona directo en GitHub Pages.
+Luego abra `http://localhost:8000`. También está publicado en GitHub Pages.
 
 ## Manual rápido
 
@@ -32,60 +34,54 @@ Luego abra `http://localhost:8000`. También funciona directo en GitHub Pages.
 
 ## Arquitectura
 
-El mundo es un **único tensor `uint8` de M × N × 7**, sin objetos por hormiga, y funciona con **doble búfer** (`lectura` → `escritura` → intercambio).
+El mundo es un **tensor `uint8` de 500 × 500 × 6** con doble búfer.
 
-| Capa | Contenido |
-|---|---|
-| 0 | Física: alfabeto Σ de 16 estados |
-| 1 | Rastro de comida |
-| 2 | Alarma / peligro |
-| 3 | Feromona real negra (GPS al nido) |
-| 4 | Necroferomonas |
-| 5 | Reclutamiento (reservada) |
-| 6 | Feromona real roja |
+| Capa | Contenido | Kernel de difusión |
+|---|---|---|
+| 0 | Física: alfabeto Σ de 16 estados | — |
+| 1 | Rastro de comida | Medio (60 / 10) |
+| 2 | Alarma / peligro | Rápido (20 / 20) |
+| 3 | Feromona real | Lento (80 / 5) |
+| 4 | Necroferomonas | Medio |
+| 5 | Reclutamiento | Medio |
 
-### Ciclo de cada turno
+### Ciclo de cada turno (`avanzar_tick`)
 
-1. **Detección humana:** se aplican los trazos de los pinceles sobre la matriz de lectura.
-2. **Física:** difusión por convolución 3 × 3 y evaporación entera de las capas químicas.
-3. **Biología:** reglas δ de movimiento, recolección, combate y emisión.
-4. **Doble búfer:** se intercambian las matrices.
-5. **Renderizado:** la capa 0 se pinta en el `<canvas>` con un colormap fijo.
-6. **Control de tiempo:** se espera `DELAY` segundos.
+1. Se copia la matriz actual a la siguiente y se drena la **cola de acciones del Modo Dios**.
+2. **Física:** evaporación del 5 % por tabla y difusión por convolución en cruz `// 100`. Los muros absorben la química.
+3. **Biología**, en este orden: depredador → combate → veneno → emisión de reinas y cadáveres → movimiento → recolección → limpieza de cadáveres → nacimientos → muro perimetral.
+4. Los muros nuevos borran la química (`libres_post`) y se intercambian los búferes.
+5. Se dibuja la capa 0 en el `<canvas>` y se espera `DELAY` segundos.
 
 ### Estructura
 
 ```
 index.html
 src/
-├── constantes.js   Σ, capas, probabilidades y colormap
+├── constantes.js   Σ, capas, kernels, tabla de evaporación, colormap
 ├── tensor.js       Tensor y doble búfer
 ├── mundo.js        Mundo inicial (Reset)
-├── fisica.js       Difusión y evaporación
-├── biologia.js     Funciones de transición δ
+├── fisica.js       Evaporación y difusión
+├── biologia.js     Reglas biológicas del motor
 ├── render.js       Tensor → píxeles
-├── pinceles.js     Clic → (fila, columna) → sobrescritura
+├── pinceles.js     Cola de acciones del Modo Dios
 ├── main.js         Ciclo de vida y panel
 └── css/styles.css
 ```
 
-## Reglas principales (δ)
+## Equivalencias con el motor en Python
 
-- **Obrera sin carga:** sube por el rastro de comida, huye de la alarma y se aleja del nido. Mantiene un rumbo y gira de vez en cuando.
-- **Obrera junto a comida:** la comida desaparece, la obrera queda cargada y se inyecta 255 en la capa 1.
-- **Obrera cargada:** deja rastro y sube por la feromona real de su colonia. Al tocar su nido entrega la comida, que suma a las reservas.
-- **Nido:** si la reina vive y hay reservas, produce obreras (80 %) y soldados (20 %).
-- **Soldado:** acude a la alarma. Si dos soldados enemigos se tocan, ambas celdas pasan a VACIO. Mata a las obreras y a la reina enemigas.
-- **Veneno:** se expande lentamente y convierte en cadáver a toda hormiga vecina.
-- **Depredador:** deambula y convierte en VACIO a cualquier hormiga vecina.
-- **Cadáver:** emite necroferomonas, las obreras lo limpian y se descompone con el tiempo.
+| Python (NumPy) | JavaScript |
+|---|---|
+| Máscaras booleanas calculadas al inicio de cada regla | Copia (`foto`) de la capa física al inicio de cada regla |
+| `np.roll` (la vecindad da la vuelta en los bordes) | Índices vecinos con módulo |
+| `argmax` + ruido de 0.01 para desempatar | Máximo con desempate uniforme al azar |
+| `escanear_gradiente_quimico` sobre todo el tablero | Se evalúa solo en las celdas con hormiga; el resultado es el mismo |
+| Las 8 direcciones de movimiento en orden aleatorio | Igual; los movimientos de cada dirección se aplican a la vez |
 
-## Decisiones respecto al documento de arquitectura
+## Adaptaciones para la web
 
-| Tema | Decisión | Por qué |
-|---|---|---|
-| Profundidad del tensor | 7 capas en lugar de 6 | Cada colonia necesita su propia feromona real; con una sola, las obreras rojas regresarían al nido negro. |
-| Bits libres del `uint8` | Bit 4 = carga comida, bit 5 = sobre arena, bits 6-7 = rumbo | Σ solo ocupa 4 bits. Así se guarda lo que el alfabeto no cubre sin romperlo. |
-| Feromona real | Propagación tipo onda (máximo 3 × 3 − 1) | Con difusión + evaporación en `uint8` el olor del nido no llega a más de ~7 celdas; la onda da un gradiente de ~250 celdas que rodea los muros. |
-| Kernel de difusión | `[1 c 1]` con `c` distinto por capa | Permite que la alarma se expanda rápido y que el rastro de comida sea fino y duradero. |
-| Agua | No incluida | Se menciona en la visión general, pero no está en el alfabeto de 16 estados. |
+- **Pinceles Hormiga N. y Hormiga R.:** el boceto los pide, pero la API del Modo Dios no los acepta. En la web escriben `OBRERA_N` y `OBRERA_R`.
+- **Integración de la API:** en el cuaderno, la llamada a `procesar_cola_acciones` está comentada dentro de `avanzar_tick`. En la web se ejecuta en ese mismo punto.
+- **Mundo inicial:** el motor no define uno de 500 × 500. Se usa un mapa con arena, muros, comida, veneno y un depredador, con los nidos al estilo del motor (nido y reina al lado).
+- **`DELAY` inicial:** 0,05 s, como en el boceto. El motor usa 0,5 s.

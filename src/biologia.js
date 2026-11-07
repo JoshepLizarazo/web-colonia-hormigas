@@ -1,296 +1,253 @@
 // =====================================================================
-// Lógica de entorno y biología: funciones de transición δ (sección 8)
-// Lee la matriz de lectura y escribe el nuevo estado en la de escritura.
-// La hormiga no se "mueve": la celda vecina vacía pasa a ser hormiga y
-// la celda original vuelve a ser tierra.
+// Reglas biológicas (port de aplicar_reglas_biologicas del motor NumPy, Sprint 3)
+//
+// Cada regla del motor trabaja con máscaras calculadas al inicio de la regla
+// y escribe sobre la capa física de escritura. Aquí se replica igual: se toma
+// una foto de la capa física al empezar cada regla y las vecindades se leen
+// de esa foto. Como np.roll, la vecindad da la vuelta en los bordes (toroide).
 // =====================================================================
 import {
-  M, N, CELDAS, MASCARA_ESTADO, FLAG_CARGA, FLAG_ARENA, MASCARA_RUMBO, DESPLAZAMIENTO_RUMBO,
-  PERSISTENCIA, PROB_GIRO,
-  TIERRA, ARENA, COMIDA, VENENO, CADAVER, DEPREDADOR,
+  M, N, CELDAS, VACIO, ARENA_SECA, MURO, COMIDA, VENENO, CADAVER,
   NIDO_N, REINA_N, OBRERA_N, SOLDADO_N, NIDO_R, REINA_R, OBRERA_R, SOLDADO_R,
-  CAPA_COMIDA, CAPA_ALARMA, CAPA_NECRO, COLONIAS, NEGRA, ROJA,
-  PROB_MUERTE_NATURAL, PROB_NACIMIENTO, PROPORCION_SOLDADOS, PROB_LIMPIEZA,
-  PROB_DESCOMPOSICION, PROB_EXPANSION_VENENO, PROB_MOVER_DEPREDADOR, RASTRO_REGRESO, OLOR_COMIDA,
+  BASURERO, DEPREDADOR,
+  CAPA_RASTRO_COMIDA, CAPA_ALARMA, CAPA_FEROMONA_REAL, CAPA_NECROFEROMONAS, CAPA_RECLUTAMIENTO,
+  PROB_MUERTE_VENENO, PROB_EXPANSION_VENENO, LIMITE_VENENO, PROB_NACIMIENTO, FRACCION_SOLDADOS,
+  DESPLAZAMIENTOS,
 } from './constantes.js';
 import { capa } from './tensor.js';
 
-// Vecindad de Moore (8 vecinos) como desplazamientos de índice.
-const VECINOS = [-N - 1, -N, -N + 1, -1, 1, N - 1, N, N + 1];
-const VECINO_DY = [-1, -1, -1, 0, 0, 1, 1, 1];
-const VECINO_DX = [-1, 0, 1, -1, 1, -1, 0, 1];
+// Tablas de pertenencia: conjunto[estado] === 1 si el estado está en el conjunto.
+const conjunto = (...estados) => {
+  const t = new Uint8Array(256);
+  for (const e of estados) t[e] = 1;
+  return t;
+};
+const HORMIGAS = conjunto(OBRERA_N, SOLDADO_N, OBRERA_R, SOLDADO_R);
+const HORMIGAS_Y_REINAS = conjunto(OBRERA_N, SOLDADO_N, REINA_N, OBRERA_R, SOLDADO_R, REINA_R);
+const OBRERAS = conjunto(OBRERA_N, OBRERA_R);
+const COLONIA_N = conjunto(OBRERA_N, SOLDADO_N);
+const COLONIA_R = conjunto(OBRERA_R, SOLDADO_R);
+const ES = (e) => conjunto(e);
+const ES_DEPREDADOR = ES(DEPREDADOR);
+const ES_SOLDADO_N = ES(SOLDADO_N);
+const ES_SOLDADO_R = ES(SOLDADO_R);
+const ES_VENENO = ES(VENENO);
+const ES_COMIDA = ES(COMIDA);
+const ES_NIDO_N = ES(NIDO_N);
+const ES_NIDO_R = ES(NIDO_R);
 
-// Rumbos diagonales (dy, dx): 0 = NE, 1 = SE, 2 = SO, 3 = NO.
-const RUMBO_DY = [-1, 1, 1, -1];
-const RUMBO_DX = [1, 1, -1, -1];
+// Índices de fila/columna vecinas con vuelta en los bordes, como np.roll.
+const FILA_ARRIBA = Int32Array.from({ length: M }, (_, y) => ((y - 1 + M) % M) * N);
+const FILA_ABAJO = Int32Array.from({ length: M }, (_, y) => ((y + 1) % M) * N);
+const COL_IZQ = Int32Array.from({ length: N }, (_, x) => (x - 1 + N) % N);
+const COL_DER = Int32Array.from({ length: N }, (_, x) => (x + 1) % N);
 
-const rumboDe = (byte) => (byte & MASCARA_RUMBO) >> DESPLAZAMIENTO_RUMBO;
-const conRumbo = (valor, rumbo) => (valor & ~MASCARA_RUMBO) | (rumbo << DESPLAZAMIENTO_RUMBO);
-export const rumboAlAzar = () => (Math.random() * 4) | 0;
+// Foto de la capa física al empezar cada regla (las máscaras del motor).
+const foto = new Uint8Array(CELDAS);
 
-// Rumbo diagonal que más se parece a un paso hacia el vecino k.
-function rumboDelPaso(k) {
-  const dy = VECINO_DY[k] || (Math.random() < 0.5 ? -1 : 1);
-  const dx = VECINO_DX[k] || (Math.random() < 0.5 ? -1 : 1);
-  if (dy < 0) return dx > 0 ? 0 : 3;
-  return dx > 0 ? 1 : 2;
+// escanear_presencia_3x3 evaluado en una celda: ¿algún vecino de la foto está en el conjunto?
+function tocaA(i, tabla) {
+  const y = (i / N) | 0;
+  const x = i - y * N;
+  const fa = FILA_ARRIBA[y], fc = y * N, fb = FILA_ABAJO[y];
+  const xi = COL_IZQ[x], xd = COL_DER[x];
+  return (
+    tabla[foto[fa + x]] | tabla[foto[fb + x]] | tabla[foto[fc + xi]] | tabla[foto[fc + xd]] |
+    tabla[foto[fa + xi]] | tabla[foto[fa + xd]] | tabla[foto[fb + xi]] | tabla[foto[fb + xd]]
+  ) === 1;
 }
 
-// Estado global de cada colonia: comida almacenada y si su reina vive.
-export const colonias = { reservas: [0, 0], reinaViva: [true, true] };
-
-// Modos de movimiento: qué gradientes químicos persigue cada casta.
-const EXPLORAR = 0;  // Obrera sin carga: sigue comida, huye de la alarma y del nido
-const REGRESAR = 1;  // Obrera cargada: sube por la feromona real de su colonia
-const PATRULLAR = 2; // Soldado: acude a la alarma y recorre los rastros
-const DEAMBULAR = 3; // Depredador: paseo aleatorio
-
-// Vistas de las capas para el tick en curso.
-let fisL, fisE, comidaL, alarmaL, necroL, comidaE, alarmaE, necroE;
-const realL = [null, null];
-const realE = [null, null];
-
-const candidatos = new Int32Array(8);
-const direcciones = new Int32Array(8);
-const pesos = new Float64Array(8);
-
-export function biologia(lectura, escritura, tick) {
-  fisL = capa(lectura, 0);
-  fisE = capa(escritura, 0);
-  comidaL = capa(lectura, CAPA_COMIDA);
-  alarmaL = capa(lectura, CAPA_ALARMA);
-  necroL = capa(lectura, CAPA_NECRO);
-  comidaE = capa(escritura, CAPA_COMIDA);
-  alarmaE = capa(escritura, CAPA_ALARMA);
-  necroE = capa(escritura, CAPA_NECRO);
-  for (const col of [NEGRA, ROJA]) {
-    realL[col] = capa(lectura, COLONIAS[col].capaReal);
-    realE[col] = capa(escritura, COLONIAS[col].capaReal);
-  }
-
-  // Lo que nadie modifica en este turno se conserva tal cual.
-  fisE.set(fisL);
-
-  // Se alterna el sentido del barrido para que ninguna dirección gane siempre los empates.
-  const adelante = tick % 2 === 0;
-  for (let yy = 1; yy < M - 1; yy++) {
-    const y = adelante ? yy : M - 1 - yy;
-    for (let xx = 1; xx < N - 1; xx++) {
-      const i = y * N + (adelante ? xx : N - 1 - xx);
-      const byte = fisL[i];
-      switch (byte & MASCARA_ESTADO) {
-        case OBRERA_N: obrera(i, byte, NEGRA); break;
-        case OBRERA_R: obrera(i, byte, ROJA); break;
-        case SOLDADO_N: soldado(i, byte, NEGRA); break;
-        case SOLDADO_R: soldado(i, byte, ROJA); break;
-        case REINA_N: reina(i, NEGRA); break;
-        case REINA_R: reina(i, ROJA); break;
-        case NIDO_N: nido(i, NEGRA); break;
-        case NIDO_R: nido(i, ROJA); break;
-        case COMIDA: emitir(comidaE, i, OLOR_COMIDA); break;
-        case CADAVER: cadaver(i); break;
-        case VENENO: veneno(i); break;
-        case DEPREDADOR: depredador(i); break;
-      }
-    }
-  }
+// Índice de la celda vecina en la dirección d (0 a 7), con vuelta en los bordes.
+function vecino(i, d) {
+  const y = (i / N) | 0;
+  const x = i - y * N;
+  const [dy, dx] = DESPLAZAMIENTOS[d];
+  return ((y + dy + M) % M) * N + ((x + dx + N) % N);
 }
 
-// Cuenta la población de la matriz y actualiza qué reinas siguen vivas.
+// escanear_gradiente_quimico evaluado en una celda: dirección del valor máximo
+// (empates al azar, como el ruido de 0.01 del motor) y ese valor máximo.
+let maximo = 0;
+function direccionMaxima(capaQuimica, i) {
+  let mejor = 0;
+  let empates = 0;
+  maximo = -1;
+  for (let d = 0; d < 8; d++) {
+    const v = capaQuimica[vecino(i, d)];
+    if (v > maximo) { maximo = v; mejor = d; empates = 1; }
+    else if (v === maximo && Math.random() * ++empates < 1) mejor = d;
+  }
+  return mejor;
+}
+
+// Cuenta la población para el panel de estadísticas.
 export function censo(tensor) {
   const fisica = capa(tensor, 0);
-  let negras = 0, rojas = 0, reinasN = 0, reinasR = 0;
+  let negras = 0, rojas = 0;
   for (let i = 0; i < CELDAS; i++) {
-    switch (fisica[i] & MASCARA_ESTADO) {
-      case OBRERA_N: case SOLDADO_N: negras++; break;
-      case OBRERA_R: case SOLDADO_R: rojas++; break;
-      case REINA_N: reinasN++; break;
-      case REINA_R: reinasR++; break;
-    }
+    if (COLONIA_N[fisica[i]]) negras++;
+    else if (COLONIA_R[fisica[i]]) rojas++;
   }
-  colonias.reinaViva[NEGRA] = reinasN > 0;
-  colonias.reinaViva[ROJA] = reinasR > 0;
   return { negras, rojas };
 }
 
 // ---------------------------------------------------------------------
-// Utilidades de escritura
+// aplicar_reglas_biologicas(lectura, escritura)
 // ---------------------------------------------------------------------
-const esSuelo = (e) => e === TIERRA || e === ARENA;
+export function biologia(lectura, escritura) {
+  const cf = capa(escritura, 0);
+  const cc = capa(escritura, CAPA_RASTRO_COMIDA);
+  const ca = capa(escritura, CAPA_ALARMA);
+  const cr = capa(escritura, CAPA_FEROMONA_REAL);
+  const cn = capa(escritura, CAPA_NECROFEROMONAS);
+  const crec = capa(escritura, CAPA_RECLUTAMIENTO);
 
-// Una celda está libre si es suelo antes y después de lo ya escrito en este turno.
-function libre(n) {
-  return esSuelo(fisL[n] & MASCARA_ESTADO) && esSuelo(fisE[n] & MASCARA_ESTADO);
+  reglaDepredador(cf);
+  reglaCombate(cf, ca);
+  reglaVeneno(cf);
+  emisionInmutables(cf, cr, cn);
+  movimiento(cf, lectura);
+  recoleccionComida(cf, cc);
+  limpiezaCadaveres(cf, crec);
+  generacionNidos(cf);
+
+  // Restricción de frontera con muros perimetrales
+  for (let x = 0; x < N; x++) { cf[x] = MURO; cf[(M - 1) * N + x] = MURO; }
+  for (let y = 0; y < M; y++) { cf[y * N] = MURO; cf[y * N + N - 1] = MURO; }
 }
 
-function ocupar(n, valor) {
-  fisE[n] = valor | ((fisE[n] & MASCARA_ESTADO) === ARENA ? FLAG_ARENA : 0);
-}
-
-// Devuelve la celda al suelo que la hormiga tenía debajo.
-function liberar(i) {
-  fisE[i] = fisL[i] & FLAG_ARENA ? ARENA : TIERRA;
-}
-
-function emitir(capaQuimica, i, valor) {
-  if (capaQuimica[i] < valor) capaQuimica[i] = valor;
-}
-
-function morir(i) {
-  fisE[i] = CADAVER;
-  emitir(alarmaE, i, 255);
-}
-
-// ---------------------------------------------------------------------
-// Escáner de vecindad (sección 8.3)
-// ---------------------------------------------------------------------
-let hayVeneno, hayDepredador, haySoldadoEnemigo, hayObreraEnemiga, hayReinaEnemiga, hayNidoPropio;
-let vecinoComida, vecinoCadaver;
-
-function escanear(i, col) {
-  const propia = COLONIAS[col];
-  const enemiga = COLONIAS[1 - col];
-  hayVeneno = hayDepredador = haySoldadoEnemigo = hayObreraEnemiga = hayReinaEnemiga = hayNidoPropio = false;
-  vecinoComida = vecinoCadaver = -1;
-  for (let k = 0; k < 8; k++) {
-    const n = i + VECINOS[k];
-    const e = fisL[n] & MASCARA_ESTADO;
-    if (e === VENENO) hayVeneno = true;
-    else if (e === DEPREDADOR) hayDepredador = true;
-    else if (e === enemiga.soldado) haySoldadoEnemigo = true;
-    else if (e === enemiga.obrera) hayObreraEnemiga = true;
-    else if (e === enemiga.reina) hayReinaEnemiga = true;
-    else if (e === COMIDA) vecinoComida = n;
-    else if (e === CADAVER) vecinoCadaver = n;
-    else if (e === propia.nido || e === propia.reina) hayNidoPropio = true;
+function reglaDepredador(cf) {
+  foto.set(cf);
+  for (let i = 0; i < CELDAS; i++) {
+    if (HORMIGAS[foto[i]] && tocaA(i, ES_DEPREDADOR)) cf[i] = VACIO;
   }
 }
 
-// Elige un vecino libre por ruleta: cada candidato pesa exp(puntaje), donde el
-// puntaje combina los gradientes químicos y la preferencia por seguir el rumbo.
-function mover(i, valor, modo, col) {
-  const real = col < 0 ? null : realL[col];
-  let rumbo = rumboDe(fisL[i]);
-  const rdy = RUMBO_DY[rumbo], rdx = RUMBO_DX[rumbo];
-  let total = 0;
-  let cuantos = 0;
-  for (let k = 0; k < 8; k++) {
-    const n = i + VECINOS[k];
-    if (!libre(n)) continue;
-    const alineacion = VECINO_DY[k] * rdy + VECINO_DX[k] * rdx; // de -2 a 2
-    let s = 0;
-    if (modo === EXPLORAR) s = 0.06 * comidaL[n] - 0.04 * alarmaL[n] + 0.006 * necroL[n] - 0.05 * real[n] + PERSISTENCIA * alineacion;
-    else if (modo === REGRESAR) s = 0.8 * real[n] + 0.005 * comidaL[n];
-    else if (modo === PATRULLAR) s = 0.05 * alarmaL[n] + 0.015 * comidaL[n] + PERSISTENCIA * alineacion;
-    else s = PERSISTENCIA * alineacion;
-    candidatos[cuantos] = n;
-    direcciones[cuantos] = k;
-    pesos[cuantos] = Math.exp(s);
-    total += pesos[cuantos];
-    cuantos++;
-  }
-  if (cuantos === 0) {
-    // Encerrada: se queda quieta y prueba otro rumbo
-    fisE[i] = conRumbo(fisE[i], rumboAlAzar());
-    return;
-  }
-
-  let r = Math.random() * total;
-  let elegido = 0;
-  for (; elegido < cuantos - 1; elegido++) {
-    r -= pesos[elegido];
-    if (r <= 0) break;
-  }
-
-  const k = direcciones[elegido];
-  if (modo === REGRESAR || VECINO_DY[k] * rdy + VECINO_DX[k] * rdx < 0) {
-    // De regreso, o si un obstáculo la desvió, adopta la dirección del paso
-    rumbo = rumboDelPaso(k);
-  } else if (Math.random() < PROB_GIRO) {
-    rumbo = (rumbo + (Math.random() < 0.5 ? 1 : 3)) & 3;
-  }
-  liberar(i);
-  ocupar(candidatos[elegido], conRumbo(valor, rumbo));
-}
-
-// ---------------------------------------------------------------------
-// Reglas por estado
-// ---------------------------------------------------------------------
-function obrera(i, byte, col) {
-  escanear(i, col);
-  if (hayDepredador) { liberar(i); emitir(alarmaE, i, 255); return; }
-  if (hayVeneno || haySoldadoEnemigo || Math.random() < PROB_MUERTE_NATURAL) { morir(i); return; }
-
-  const valor = byte & (MASCARA_ESTADO | FLAG_CARGA);
-
-  if (byte & FLAG_CARGA) {
-    // Entrega la comida al tocar su nido o su reina
-    if (hayNidoPropio) {
-      // Entrega y da media vuelta para volver por donde vino
-      fisE[i] = conRumbo(byte & ~FLAG_CARGA, (rumboDe(byte) + 2) & 3);
-      colonias.reservas[col]++;
-      return;
+function reglaCombate(cf, ca) {
+  foto.set(cf);
+  for (let i = 0; i < CELDAS; i++) {
+    const e = foto[i];
+    if ((COLONIA_N[e] && tocaA(i, ES_SOLDADO_R)) || (COLONIA_R[e] && tocaA(i, ES_SOLDADO_N))) {
+      cf[i] = VACIO;
+      ca[i] = 255;
     }
-    emitir(comidaE, i, RASTRO_REGRESO);
-    mover(i, valor, REGRESAR, col);
-    return;
+  }
+}
+
+function reglaVeneno(cf) {
+  foto.set(cf);
+  let celdasVeneno = 0;
+  for (let i = 0; i < CELDAS; i++) {
+    if (foto[i] === VENENO) celdasVeneno++;
+    else if (HORMIGAS_Y_REINAS[foto[i]] && tocaA(i, ES_VENENO) && Math.random() < PROB_MUERTE_VENENO) cf[i] = CADAVER;
+  }
+  if (celdasVeneno / CELDAS >= LIMITE_VENENO) return;
+  for (let i = 0; i < CELDAS; i++) {
+    const e = cf[i];
+    if ((e === VACIO || e === ARENA_SECA) && tocaA(i, ES_VENENO) && Math.random() < PROB_EXPANSION_VENENO) cf[i] = VENENO;
+  }
+}
+
+function emisionInmutables(cf, cr, cn) {
+  for (let i = 0; i < CELDAS; i++) {
+    const e = cf[i];
+    if (e === REINA_N || e === REINA_R) cr[i] = 255;
+    else if (e === CADAVER) cn[i] = 255;
+  }
+}
+
+// Dirección asignada en este turno a la hormiga de cada celda.
+const direccion = new Int8Array(CELDAS);
+const yaSeMovio = new Uint8Array(CELDAS);
+const hormigas = new Int32Array(CELDAS);
+const origenes = new Int32Array(CELDAS);
+const destinos = new Int32Array(CELDAS);
+
+function movimiento(cf, lectura) {
+  const comida = capa(lectura, CAPA_RASTRO_COMIDA);
+  const necro = capa(lectura, CAPA_NECROFEROMONAS);
+  const alarma = capa(lectura, CAPA_ALARMA);
+
+  // Obreras: comida -> necroferomona -> azar. Soldados: alarma -> azar.
+  let total = 0;
+  for (let i = 0; i < CELDAS; i++) {
+    const e = cf[i];
+    if (!HORMIGAS[e]) continue;
+    let d;
+    if (OBRERAS[e]) {
+      d = direccionMaxima(comida, i);
+      if (maximo === 0) {
+        d = direccionMaxima(necro, i);
+        if (maximo === 0) d = (Math.random() * 8) | 0;
+      }
+    } else {
+      d = direccionMaxima(alarma, i);
+      if (maximo === 0) d = (Math.random() * 8) | 0;
+    }
+    direccion[i] = d;
+    hormigas[total++] = i;
   }
 
-  // Recolección: la comida desaparece y se inyecta 255 en la Capa 1
-  if (vecinoComida >= 0 && (fisE[vecinoComida] & MASCARA_ESTADO) === COMIDA) {
-    fisE[vecinoComida] = TIERRA;
-    fisE[i] = byte | FLAG_CARGA;
-    emitir(comidaE, i, 255);
-    return;
+  yaSeMovio.fill(0);
+  // Las 8 direcciones se procesan en orden aleatorio; dentro de cada una, todos
+  // los movimientos ocurren a la vez sobre el estado previo a esa dirección.
+  const orden = [0, 1, 2, 3, 4, 5, 6, 7];
+  for (let k = 7; k > 0; k--) {
+    const j = (Math.random() * (k + 1)) | 0;
+    [orden[k], orden[j]] = [orden[j], orden[k]];
   }
-
-  // Limpieza: retira cadáveres vecinos
-  if (vecinoCadaver >= 0 && Math.random() < PROB_LIMPIEZA && (fisE[vecinoCadaver] & MASCARA_ESTADO) === CADAVER) {
-    fisE[vecinoCadaver] = TIERRA;
+  for (const d of orden) {
+    let n = 0;
+    for (let k = 0; k < total; k++) {
+      const i = hormigas[k];
+      if (direccion[i] !== d || yaSeMovio[i] || !HORMIGAS[cf[i]]) continue;
+      const j = vecino(i, d);
+      if (cf[j] === VACIO || cf[j] === ARENA_SECA) {
+        origenes[n] = i;
+        destinos[n] = j;
+        n++;
+      }
+    }
+    for (let k = 0; k < n; k++) {
+      cf[destinos[k]] = cf[origenes[k]];
+      cf[origenes[k]] = VACIO;
+      yaSeMovio[destinos[k]] = 1;
+    }
   }
-
-  mover(i, valor, EXPLORAR, col);
 }
 
-function soldado(i, byte, col) {
-  escanear(i, col);
-  if (hayDepredador) { liberar(i); emitir(alarmaE, i, 255); return; }
-  if (hayVeneno || Math.random() < PROB_MUERTE_NATURAL) { morir(i); return; }
-  // Combate entre soldados: ambas celdas pasan a VACIO (cada una lo resuelve en su turno)
-  if (haySoldadoEnemigo) { liberar(i); emitir(alarmaE, i, 255); return; }
-  // Ante una obrera o reina enemiga se queda a pelear y llama refuerzos
-  if (hayObreraEnemiga || hayReinaEnemiga) { emitir(alarmaE, i, 255); return; }
-  mover(i, byte & MASCARA_ESTADO, PATRULLAR, col);
+function recoleccionComida(cf, cc) {
+  foto.set(cf);
+  for (let i = 0; i < CELDAS; i++) {
+    const e = foto[i];
+    if (OBRERAS[e] && tocaA(i, ES_COMIDA)) cc[i] = 255;
+    else if (e === COMIDA && tocaA(i, OBRERAS)) cf[i] = VACIO;
+  }
 }
 
-function reina(i, col) {
-  escanear(i, col);
-  if (hayDepredador) { liberar(i); emitir(alarmaE, i, 255); return; }
-  if (hayVeneno || haySoldadoEnemigo) { morir(i); return; }
-  emitir(realE[col], i, 255);
+function limpiezaCadaveres(cf, crec) {
+  foto.set(cf);
+  for (let i = 0; i < CELDAS; i++) {
+    if (foto[i] === CADAVER && tocaA(i, OBRERAS)) {
+      cf[i] = VACIO;
+      crec[i] = 255;
+    } else if (cf[i] === BASURERO) {
+      crec[i] = 255;
+    }
+  }
 }
 
-function nido(i, col) {
-  emitir(realE[col], i, 255);
-  if (!colonias.reinaViva[col] || colonias.reservas[col] <= 0 || Math.random() >= PROB_NACIMIENTO) return;
-  const n = i + VECINOS[(Math.random() * 8) | 0];
-  if (!libre(n)) return;
-  const c = COLONIAS[col];
-  ocupar(n, conRumbo(Math.random() < PROPORCION_SOLDADOS ? c.soldado : c.obrera, rumboAlAzar()));
-  colonias.reservas[col]--;
-}
-
-function cadaver(i) {
-  emitir(necroE, i, 255);
-  if (Math.random() < PROB_DESCOMPOSICION) fisE[i] = TIERRA;
-}
-
-function veneno(i) {
-  if (Math.random() >= PROB_EXPANSION_VENENO) return;
-  const n = i + VECINOS[(Math.random() * 8) | 0];
-  if (libre(n)) fisE[n] = VENENO;
-}
-
-function depredador(i) {
-  if (Math.random() < PROB_MOVER_DEPREDADOR) mover(i, DEPREDADOR, DEAMBULAR, -1);
+function generacionNidos(cf) {
+  foto.set(cf);
+  for (let i = 0; i < CELDAS; i++) {
+    if (foto[i] !== VACIO) continue;
+    const cercaN = tocaA(i, ES_NIDO_N);
+    const cercaR = tocaA(i, ES_NIDO_R);
+    if (!cercaN && !cercaR) continue;
+    // Las mismas tiradas sirven para ambas colonias, como en el motor
+    if (Math.random() >= PROB_NACIMIENTO) continue;
+    const soldado = Math.random() < FRACCION_SOLDADOS;
+    if (cercaN) cf[i] = soldado ? SOLDADO_N : OBRERA_N;
+    else cf[i] = soldado ? SOLDADO_R : OBRERA_R;
+  }
 }

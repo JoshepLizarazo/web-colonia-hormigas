@@ -3,8 +3,8 @@
 // Convierte la Capa 0 en colores y superpone las capas químicas elegidas.
 // =====================================================================
 import {
-  M, N, CELDAS, MASCARA_ESTADO, ARENA, ESTADOS,
-  CAPA_COMIDA, CAPA_ALARMA, COLOR_RASTRO_COMIDA, COLOR_ALARMA,
+  M, N, CELDAS, MASCARA_ESTADO, ARENA_SECA, ESTADOS,
+  CAPA_RASTRO_COMIDA, CAPA_ALARMA, COLOR_RASTRO_COMIDA, COLOR_ALARMA,
 } from './constantes.js';
 import { capa } from './tensor.js';
 
@@ -31,7 +31,7 @@ export function prepararLienzo(canvas) {
 
 export function dibujar(tensor, verRastro, verAlarma) {
   const fisica = capa(tensor, 0);
-  const rastro = capa(tensor, CAPA_COMIDA);
+  const rastro = capa(tensor, CAPA_RASTRO_COMIDA);
   const alarma = capa(tensor, CAPA_ALARMA);
   const quimica = verRastro || verAlarma;
 
@@ -40,7 +40,7 @@ export function dibujar(tensor, verRastro, verAlarma) {
     let r = ROJO[e], g = VERDE[e], b = AZUL[e];
 
     // Las feromonas se pintan solo sobre el suelo para no tapar a las hormigas.
-    if (quimica && e <= ARENA) {
+    if (quimica && e <= ARENA_SECA) {
       if (verRastro && rastro[i]) {
         const a = Math.min(1, rastro[i] / 160) * 0.9;
         r += (RASTRO[0] - r) * a; g += (RASTRO[1] - g) * a; b += (RASTRO[2] - b) * a;

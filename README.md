@@ -26,7 +26,7 @@ Luego abra `http://localhost:8000`. También está publicado en GitHub Pages.
 | Control | Qué hace |
 |---|---|
 | **▶ Play / ⏸ Pausa / 🔄 Reset** | Arranca, detiene o regenera el mundo inicial. |
-| **Pinceles** | Clic o arrastre sobre el mapa: Muro, Comida, Veneno, Hormiga N., Hormiga R., Borrar y Depredador. |
+| **Pinceles** | El mapa arranca vacío. Colonia N. y Colonia R. ponen un nido con su reina en cada clic. Muro, Comida, Veneno, Hormiga N., Hormiga R., Borrar y Depredador pintan con clic o arrastre. |
 | **Grosor** | Tamaño del pincel: 1×1, 3×3, 5×5, 7×7 o 9×9. |
 | **Visor químico** | Superpone el rastro de comida (azul) y la alarma (amarillo). |
 | **Delay** | Pausa entre turnos, de 0 a 0,5 s (variable global `DELAY`). |
@@ -83,5 +83,6 @@ src/
 
 - **Pinceles Hormiga N. y Hormiga R.:** el boceto los pide, pero la API del Modo Dios no los acepta. En la web escriben `OBRERA_N` y `OBRERA_R`.
 - **Integración de la API:** en el cuaderno, la llamada a `procesar_cola_acciones` está comentada dentro de `avanzar_tick`. En la web se ejecuta en ese mismo punto.
-- **Mundo inicial:** el motor no define uno de 500 × 500. Se usa un mapa con arena, muros, comida, veneno y un depredador, con los nidos al estilo del motor (nido y reina al lado).
+- **Mundo inicial:** el motor no define uno de 500 × 500. La web arranca vacía, solo con el muro perimetral, y el usuario construye todo con los pinceles.
+- **Pinceles Colonia N. y Colonia R.:** cada clic pone un nido con su reina debajo, como en los mapas del motor. La API acepta `NIDO_N` y `NIDO_R`, pero no las reinas. Funcionan con clic, no al arrastrar, para no sembrar decenas de colonias en un trazo.
 - **`DELAY` inicial:** 0,05 s, como en el boceto. El motor usa 0,5 s.

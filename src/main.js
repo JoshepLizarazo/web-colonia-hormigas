@@ -3,15 +3,18 @@
 // =====================================================================
 import {
   ESTADOS, DELAY_INICIAL, MURO, COMIDA, VENENO, OBRERA_N, OBRERA_R, DEPREDADOR, VACIO,
+  NIDO_N, NIDO_R,
 } from './constantes.js';
 import { motor, intercambiar } from './tensor.js';
 import { generarMundo } from './mundo.js';
 import { fisica, limpiarMuros } from './fisica.js';
 import { biologia, censo } from './biologia.js';
 import { prepararLienzo, dibujar } from './render.js';
-import { pincel, GROSORES, conectarLienzo, procesarCola } from './pinceles.js';
+import { pincel, GROSORES, PINTAR, BORRAR, COLONIA, conectarLienzo, procesarCola } from './pinceles.js';
 
 const PINCELES = {
+  'colonia-n': NIDO_N,
+  'colonia-r': NIDO_R,
   muro: MURO,
   comida: COMIDA,
   veneno: VENENO,
@@ -102,7 +105,8 @@ ui.reset.addEventListener('click', reiniciar);
 
 function elegirPincel(valor) {
   pincel.estado = PINCELES[valor];
-  pincel.borrar = valor === 'borrar'; // borrar_celda también limpia las feromonas
+  // borrar_celda también limpia las feromonas; colonia pone nido y reina
+  pincel.modo = valor === 'borrar' ? BORRAR : valor.startsWith('colonia') ? COLONIA : PINTAR;
 }
 for (const radio of document.querySelectorAll('input[name="pincel"]')) {
   radio.addEventListener('change', () => elegirPincel(radio.value));

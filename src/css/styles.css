@@ -107,8 +107,11 @@ button.activo { border-color: var(--acento); color: var(--acento); }
   vertical-align: -1px;
   flex: none;
 }
-.muestra.rastro { background: var(--rastro); }
-.muestra.alarma { background: var(--alarma); }
+.bloque h3 {
+  margin: 12px 0 8px;
+  font: 600 11px var(--mono);
+  color: var(--tenue);
+}
 
 .pinceles {
   display: grid;

@@ -12,6 +12,8 @@ function crearTensor() {
 export const motor = {
   lectura: crearTensor(),
   escritura: crearTensor(),
+  // terreno_arena: dónde hay arena seca debajo, aunque una hormiga la pise.
+  terreno: new Uint8Array(CELDAS),
 };
 
 // Vista de una capa: equivale a tensor[:, :, c] en NumPy.
@@ -20,7 +22,7 @@ export function capa(tensor, c) {
 }
 
 // Fin del tick: la matriz de escritura pasa a ser la de lectura.
-// Intercambiar referencias equivale a matriz_lectura = matriz_escritura.copy()
+// Intercambiar referencias equivale a copyto(actual, siguiente)
 // sin copiar 1,75 MB por turno; la escritura se rellena completa en el siguiente tick.
 export function intercambiar() {
   const anterior = motor.lectura;

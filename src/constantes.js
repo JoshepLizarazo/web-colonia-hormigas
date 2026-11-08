@@ -48,12 +48,18 @@ const KERNEL_RAPIDO = { centro: 20, lado: 20 };
 // Uno por capa química, de la 1 a la 5.
 export const KERNELS = [KERNEL_MEDIO, KERNEL_RAPIDO, KERNEL_LENTO, KERNEL_MEDIO, KERNEL_MEDIO];
 
-// --- Biología ------------------------------------------------------------
+// --- Biología (parámetros del motor v6) -------------------------------
+export const PROB_EXPANSION_VENENO = 0.01;
+export const FRACCION_MAXIMA_VENENO = 0.08;   // Tope real de celdas con veneno
 export const PROB_MUERTE_VENENO = 0.125;
-export const PROB_EXPANSION_VENENO = 0.03;
-export const LIMITE_VENENO = 0.15;      // Fracción máxima del mapa con veneno
+export const PROB_MOVIMIENTO_DEPREDADOR = 0.8;
 export const PROB_NACIMIENTO = 0.05;
 export const FRACCION_SOLDADOS = 0.2;
+export const RADIO_RADAR_DEPREDADOR = 8;
+export const PROB_MOVIMIENTO_ARENA = 0.5;     // Entrar en arena seca cuesta más
+export const PROB_RETORNO_REAL = 0.2;
+export const INTENSIDAD_RASTRO_MOVIMIENTO = 110;
+export const INTENSIDAD_FEROMONA_PINCEL = 220;
 
 // Vecindad de Moore en el orden del motor: arriba, abajo, izq, der y diagonales.
 export const DESPLAZAMIENTOS = [
@@ -85,3 +91,6 @@ export const ESTADOS = [
 ];
 export const COLOR_RASTRO_COMIDA = '#38bdf8';
 export const COLOR_ALARMA = '#ffe14d';
+export const COLOR_FEROMONA_REAL = '#f472b6';
+export const COLOR_NECROFEROMONAS = '#a3e635';
+export const COLOR_RECLUTAMIENTO = '#fb923c';

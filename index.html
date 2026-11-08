@@ -40,6 +40,17 @@
           <label><input type="radio" name="pincel" value="hormiga-r"><span class="muestra"></span>Hormiga R.</label>
           <label><input type="radio" name="pincel" value="borrar"><span class="muestra"></span>Borrar</label>
           <label><input type="radio" name="pincel" value="depredador"><span class="muestra"></span>Depredador</label>
+          <label><input type="radio" name="pincel" value="arena"><span class="muestra"></span>Arena seca</label>
+          <label><input type="radio" name="pincel" value="cadaver"><span class="muestra"></span>Cadáver</label>
+          <label><input type="radio" name="pincel" value="basurero"><span class="muestra"></span>Basurero</label>
+        </div>
+        <h3>Feromonas</h3>
+        <div class="pinceles" role="radiogroup" aria-label="Pincel de feromona">
+          <label><input type="radio" name="pincel" value="f-rastro"><span class="muestra"></span>Rastro comida</label>
+          <label><input type="radio" name="pincel" value="f-alarma"><span class="muestra"></span>Alarma</label>
+          <label><input type="radio" name="pincel" value="f-real"><span class="muestra"></span>Real</label>
+          <label><input type="radio" name="pincel" value="f-necro"><span class="muestra"></span>Necro</label>
+          <label><input type="radio" name="pincel" value="f-reclutamiento"><span class="muestra"></span>Reclutamiento</label>
         </div>
         <div class="grosor">
           <span>Grosor:</span>
@@ -51,8 +62,11 @@
 
       <section class="bloque">
         <h2>👁 Visor químico (feromonas)</h2>
-        <label class="casilla"><input type="checkbox" id="ver-rastro"><span class="muestra rastro"></span>Ver rastro de comida</label>
-        <label class="casilla"><input type="checkbox" id="ver-alarma"><span class="muestra alarma"></span>Ver alarma / peligro</label>
+        <label class="casilla"><input type="checkbox" data-capa="1"><span class="muestra"></span>Ver rastro de comida</label>
+        <label class="casilla"><input type="checkbox" data-capa="2"><span class="muestra"></span>Ver alarma / peligro</label>
+        <label class="casilla"><input type="checkbox" data-capa="3"><span class="muestra"></span>Ver feromona real</label>
+        <label class="casilla"><input type="checkbox" data-capa="4"><span class="muestra"></span>Ver necroferomonas</label>
+        <label class="casilla"><input type="checkbox" data-capa="5"><span class="muestra"></span>Ver reclutamiento</label>
       </section>
 
       <section class="bloque">

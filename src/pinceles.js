@@ -2,15 +2,20 @@
 // Inyección de eventos: clics del usuario sobre el lienzo (sección 6.3)
 // Port de la API Modo Dios: cola de acciones que se drena al inicio del tick.
 // =====================================================================
-import { M, N, CELDAS, CAPAS, VACIO, NIDO_N, REINA_N, NIDO_R, REINA_R } from './constantes.js';
+import {
+  M, N, CELDAS, CAPAS, ARENA_SECA, MURO, NIDO_N, REINA_N, NIDO_R, REINA_R,
+  INTENSIDAD_FEROMONA_PINCEL,
+} from './constantes.js';
 import { capa } from './tensor.js';
 
 export const GROSORES = [1, 3, 5, 7, 9];
 
-// Modos de pincel: pintar_celda, borrar_celda y colocar una colonia.
+// Modos de pincel: pintar_celda (estado físico), borrar_celda, colocar una
+// colonia y pintar una feromona (los pinceles -1 a -5 de la API).
 export const PINTAR = 0;
 export const BORRAR = 1;
 export const COLONIA = 2;
+export const QUIMICO = 3;
 
 // Colonia: nido en la celda del clic y su reina debajo, como en los mapas del motor.
 const REINA_DE = { [NIDO_N]: REINA_N, [NIDO_R]: REINA_R };
@@ -71,10 +76,9 @@ function trazarLinea([f0, c0], [f1, c1]) {
   }
 }
 
-const recortar = (v, max) => Math.max(0, Math.min(max, v));
-
-// procesar_cola_acciones + _aplicar_accion
-export function procesarCola(tensor) {
+// procesar_cola_acciones + _aplicar_accion. Se aplica sobre la matriz actual
+// antes del tick y mantiene el terreno de arena persistente.
+export function procesarCola(tensor, terreno) {
   const fisica = capa(tensor, 0);
   for (let k = 0; k < cola.length; k += 5) {
     const [fila, col, estado, modo, grosor] = cola.slice(k, k + 5);
@@ -87,16 +91,26 @@ export function procesarCola(tensor) {
       continue;
     }
     const radio = grosor >> 1;
-    const f0 = recortar(fila - radio, M - 1), f1 = recortar(fila + radio, M - 1);
-    const c0 = recortar(col - radio, N - 1), c1 = recortar(col + radio, N - 1);
+    const f0 = Math.max(0, fila - radio), f1 = Math.min(M - 1, fila + radio);
+    const c0 = Math.max(0, col - radio), c1 = Math.min(N - 1, col + radio);
+    // Un pincel fuera del mundo no modifica el borde
+    if (f0 > f1 || c0 > c1) continue;
     for (let f = f0; f <= f1; f++) {
       for (let c = c0; c <= c1; c++) {
         const i = f * N + c;
         if (modo === BORRAR) {
-          fisica[i] = VACIO;
-          for (let q = 1; q < CAPAS; q++) tensor[q * CELDAS + i] = 0;
+          for (let q = 0; q < CAPAS; q++) tensor[q * CELDAS + i] = 0;
+          terreno[i] = 0;
+        } else if (modo === QUIMICO) {
+          // No se pintan feromonas dentro de un muro
+          if (fisica[i] !== MURO) tensor[estado * CELDAS + i] = INTENSIDAD_FEROMONA_PINCEL;
         } else {
           fisica[i] = estado;
+          if (estado === ARENA_SECA) terreno[i] = 1;
+          else if (estado === MURO) {
+            terreno[i] = 0;
+            for (let q = 1; q < CAPAS; q++) tensor[q * CELDAS + i] = 0;
+          }
         }
       }
     }

@@ -20,26 +20,17 @@ export function fisica(actual, siguiente) {
       limpia[i] = suelo[i] === MURO ? 0 : TABLA_EVAPORACION[origen[i]];
     }
 
-    // convolve2d(mode="same", boundary="fill", fillvalue=0) // 100, recortado a 0..255
+    // convolve(mode="constant", cval=0), redondeado: (suma + 50) // 100, recortado a 0..255
     for (let y = 0; y < M; y++) {
       for (let x = 0; x < N; x++) {
         const i = y * N + x;
         const vecinos =
           (y > 0 ? limpia[i - N] : 0) + (y < M - 1 ? limpia[i + N] : 0) +
           (x > 0 ? limpia[i - 1] : 0) + (x < N - 1 ? limpia[i + 1] : 0);
-        const v = Math.floor((centro * limpia[i] + lado * vecinos) / 100);
+        const v = Math.floor((centro * limpia[i] + lado * vecinos + 50) / 100);
         // matriz_siguiente[:, :, 1:6] *= libres
         destino[i] = suelo[i] === MURO ? 0 : v > 255 ? 255 : v;
       }
     }
-  }
-}
-
-// libres_post: los muros creados durante el turno también borran la química.
-export function limpiarMuros(siguiente) {
-  const suelo = capa(siguiente, 0);
-  for (let i = 0; i < CELDAS; i++) {
-    if (suelo[i] !== MURO) continue;
-    for (let c = 1; c < CAPAS; c++) siguiente[c * CELDAS + i] = 0;
   }
 }

@@ -2,26 +2,36 @@
 // Ciclo de vida del sandbox (sección 9) y conexión con el panel de control
 // =====================================================================
 import {
-  ESTADOS, DELAY_INICIAL, MURO, COMIDA, VENENO, OBRERA_N, OBRERA_R, DEPREDADOR, VACIO,
-  NIDO_N, NIDO_R,
+  M, N, ESTADOS, DELAY_INICIAL, MURO, COMIDA, VENENO, OBRERA_N, OBRERA_R, DEPREDADOR, VACIO,
+  NIDO_N, NIDO_R, ARENA_SECA, CADAVER, BASURERO,
+  CAPA_RASTRO_COMIDA, CAPA_ALARMA, CAPA_FEROMONA_REAL, CAPA_NECROFEROMONAS, CAPA_RECLUTAMIENTO,
 } from './constantes.js';
-import { motor, intercambiar } from './tensor.js';
+import { motor, capa, intercambiar } from './tensor.js';
 import { generarMundo } from './mundo.js';
-import { fisica, limpiarMuros } from './fisica.js';
+import { fisica } from './fisica.js';
 import { biologia, censo } from './biologia.js';
-import { prepararLienzo, dibujar } from './render.js';
-import { pincel, GROSORES, PINTAR, BORRAR, COLONIA, conectarLienzo, procesarCola } from './pinceles.js';
+import { prepararLienzo, dibujar, COLORES_CAPA } from './render.js';
+import { pincel, GROSORES, PINTAR, BORRAR, COLONIA, QUIMICO, conectarLienzo, procesarCola } from './pinceles.js';
 
+// Pincel -> [estado o capa, modo]
 const PINCELES = {
-  'colonia-n': NIDO_N,
-  'colonia-r': NIDO_R,
-  muro: MURO,
-  comida: COMIDA,
-  veneno: VENENO,
-  'hormiga-n': OBRERA_N,
-  'hormiga-r': OBRERA_R,
-  depredador: DEPREDADOR,
-  borrar: VACIO,
+  'colonia-n': [NIDO_N, COLONIA],
+  'colonia-r': [NIDO_R, COLONIA],
+  muro: [MURO, PINTAR],
+  comida: [COMIDA, PINTAR],
+  veneno: [VENENO, PINTAR],
+  'hormiga-n': [OBRERA_N, PINTAR],
+  'hormiga-r': [OBRERA_R, PINTAR],
+  borrar: [VACIO, BORRAR],
+  depredador: [DEPREDADOR, PINTAR],
+  arena: [ARENA_SECA, PINTAR],
+  cadaver: [CADAVER, PINTAR],
+  basurero: [BASURERO, PINTAR],
+  'f-rastro': [CAPA_RASTRO_COMIDA, QUIMICO],
+  'f-alarma': [CAPA_ALARMA, QUIMICO],
+  'f-real': [CAPA_FEROMONA_REAL, QUIMICO],
+  'f-necro': [CAPA_NECROFEROMONAS, QUIMICO],
+  'f-reclutamiento': [CAPA_RECLUTAMIENTO, QUIMICO],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -33,8 +43,7 @@ const ui = {
   grosorMenos: $('grosor-menos'),
   grosorMas: $('grosor-mas'),
   grosorValor: $('grosor-valor'),
-  verRastro: $('ver-rastro'),
-  verAlarma: $('ver-alarma'),
+  visor: [...document.querySelectorAll('input[data-capa]')],
   delay: $('delay'),
   delayValor: $('delay-valor'),
   tick: $('stat-tick'),
@@ -47,19 +56,38 @@ let corriendo = false;
 let tick = 0;
 let temporizador = null;
 
-// Un turno completo: avanzar_tick() del motor del Subgrupo 3.
+// La arena pintada queda como terreno; el perímetro siempre es muro.
+function asentarTerreno() {
+  const cf = capa(motor.lectura, 0);
+  const terreno = motor.terreno;
+  for (let i = 0; i < cf.length; i++) if (cf[i] === ARENA_SECA) terreno[i] = 1;
+  for (let x = 0; x < N; x++) {
+    terreno[x] = terreno[(M - 1) * N + x] = 0;
+    cf[x] = cf[(M - 1) * N + x] = MURO;
+  }
+  for (let y = 0; y < M; y++) {
+    terreno[y * N] = terreno[y * N + N - 1] = 0;
+    cf[y * N] = cf[y * N + N - 1] = MURO;
+  }
+}
+
+// Un turno completo: MotorNumPy.avanzar_tick() del Subgrupo 3.
 function paso() {
-  motor.escritura.set(motor.lectura);        // np.copyto(matriz_siguiente, matriz_actual)
-  procesarCola(motor.escritura);             // 1. Detección humana (cola Modo Dios)
-  fisica(motor.lectura, motor.escritura);    // 2. Evaporación y difusión
-  biologia(motor.lectura, motor.escritura);  // 3. Reglas biológicas
-  limpiarMuros(motor.escritura);             //    libres_post
-  intercambiar();                            // 4. Doble búfer
+  procesarCola(motor.lectura, motor.terreno); // 1. Cola Modo Dios sobre la matriz actual
+  asentarTerreno();
+  motor.escritura.set(motor.lectura);         // copyto(siguiente, actual)
+  fisica(motor.lectura, motor.escritura);     // 2. Evaporación y difusión
+  biologia(motor.escritura, motor.terreno);   // 3. Reglas biológicas
+  intercambiar();                             // 4. Doble búfer
   tick++;
 }
 
+function capasVisibles() {
+  return ui.visor.filter((c) => c.checked).map((c) => Number(c.dataset.capa));
+}
+
 function pintarPantalla() {
-  dibujar(motor.lectura, ui.verRastro.checked, ui.verAlarma.checked); // 5. Renderizado
+  dibujar(motor.lectura, capasVisibles()); // 5. Renderizado
   const { negras, rojas } = censo(motor.lectura);
   ui.tick.textContent = tick;
   ui.negras.textContent = negras;
@@ -90,6 +118,7 @@ function reiniciar() {
   pausar();
   tick = 0;
   generarMundo(motor.lectura);
+  motor.terreno.fill(0);
   pintarPantalla();
 }
 
@@ -104,14 +133,13 @@ ui.pausa.addEventListener('click', pausar);
 ui.reset.addEventListener('click', reiniciar);
 
 function elegirPincel(valor) {
-  pincel.estado = PINCELES[valor];
-  // borrar_celda también limpia las feromonas; colonia pone nido y reina
-  pincel.modo = valor === 'borrar' ? BORRAR : valor.startsWith('colonia') ? COLONIA : PINTAR;
+  [pincel.estado, pincel.modo] = PINCELES[valor];
 }
 for (const radio of document.querySelectorAll('input[name="pincel"]')) {
   radio.addEventListener('change', () => elegirPincel(radio.value));
+  const [estado, modo] = PINCELES[radio.value];
   const muestra = radio.parentElement.querySelector('.muestra');
-  muestra.style.background = ESTADOS[PINCELES[radio.value]].color;
+  muestra.style.background = modo === QUIMICO ? COLORES_CAPA[estado] : ESTADOS[estado].color;
 }
 elegirPincel(document.querySelector('input[name="pincel"]:checked').value);
 
@@ -129,7 +157,8 @@ ui.delay.addEventListener('input', () => {
 });
 
 // Con la simulación en pausa, los cambios se ven al instante.
-for (const casilla of [ui.verRastro, ui.verAlarma]) {
+for (const casilla of ui.visor) {
+  casilla.parentElement.querySelector('.muestra').style.background = COLORES_CAPA[casilla.dataset.capa];
   casilla.addEventListener('change', () => { if (!corriendo) pintarPantalla(); });
 }
 
@@ -137,7 +166,7 @@ for (const casilla of [ui.verRastro, ui.verAlarma]) {
 prepararLienzo(lienzo);
 conectarLienzo(lienzo, () => {
   if (corriendo) return; // En marcha, el paso 1 del ciclo drena la cola
-  procesarCola(motor.lectura);
+  procesarCola(motor.lectura, motor.terreno);
   pintarPantalla();
 });
 

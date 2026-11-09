@@ -3,15 +3,15 @@
 // =====================================================================
 import {
   M, N, ESTADOS, DELAY_INICIAL, MURO, COMIDA, VENENO, OBRERA_N, OBRERA_R, DEPREDADOR, VACIO,
-  NIDO_N, NIDO_R, ARENA_SECA, CADAVER, BASURERO,
+  NIDO_N, NIDO_R, ARENA_SECA, CADAVER, BASURERO, SOLDADO_N, SOLDADO_R, P,
   CAPA_RASTRO_COMIDA, CAPA_ALARMA, CAPA_FEROMONA_REAL, CAPA_NECROFEROMONAS, CAPA_RECLUTAMIENTO,
 } from './constantes.js';
-import { motor, capa, intercambiar } from './tensor.js';
+import { motor, capa, intercambiar, reiniciarEstado } from './tensor.js';
 import { generarMundo } from './mundo.js';
 import { fisica } from './fisica.js';
-import { biologia, censo } from './biologia.js';
+import { biologia, censo, limpiarEstado, emisionInmutables } from './biologia.js';
 import { prepararLienzo, dibujar, COLORES_CAPA } from './render.js';
-import { pincel, GROSORES, PINTAR, BORRAR, COLONIA, QUIMICO, conectarLienzo, procesarCola } from './pinceles.js';
+import { pincel, GROSORES, PINTAR, BORRAR, COLONIA, QUIMICO, PUNTUAL, conectarLienzo, procesarCola } from './pinceles.js';
 
 // Pincel -> [estado o capa, modo]
 const PINCELES = {
@@ -22,8 +22,10 @@ const PINCELES = {
   veneno: [VENENO, PINTAR],
   'hormiga-n': [OBRERA_N, PINTAR],
   'hormiga-r': [OBRERA_R, PINTAR],
+  'soldado-n': [SOLDADO_N, PINTAR],
+  'soldado-r': [SOLDADO_R, PINTAR],
   borrar: [VACIO, BORRAR],
-  depredador: [DEPREDADOR, PINTAR],
+  depredador: [DEPREDADOR, PUNTUAL],
   arena: [ARENA_SECA, PINTAR],
   cadaver: [CADAVER, PINTAR],
   basurero: [BASURERO, PINTAR],
@@ -49,6 +51,8 @@ const ui = {
   tick: $('stat-tick'),
   negras: $('stat-negras'),
   rojas: $('stat-rojas'),
+  reservasNegras: $('stat-reservas-negras'),
+  reservasRojas: $('stat-reservas-rojas'),
 };
 
 let DELAY = DELAY_INICIAL; // Variable global de tiempo que controla el deslizador
@@ -73,14 +77,19 @@ function asentarTerreno() {
 
 // Un turno completo: MotorNumPy.avanzar_tick() del Subgrupo 3.
 function paso() {
-  procesarCola(motor.lectura, motor.terreno); // 1. Cola Modo Dios sobre la matriz actual
+  procesarCola(motor.lectura, motor.terreno, motor); // 1. Cola Modo Dios sobre la matriz actual
   asentarTerreno();
-  motor.escritura.set(motor.lectura);         // copyto(siguiente, actual)
-  fisica(motor.lectura, motor.escritura);     // 2. Evaporación y difusión
-  biologia(motor.escritura, motor.terreno);   // 3. Reglas biológicas
-  intercambiar();                             // 4. Doble búfer
+  const suelo = capa(motor.lectura, 0);
+  limpiarEstado(suelo, motor);
+  motor.escritura.set(motor.lectura);                // copyto(siguiente, actual)
+  emisionInmutables(suelo, motor.escritura);         // Las fuentes emiten antes de propagar
+  fisica(suelo, motor.escritura, motor.terreno);     // 2. Evaporación y propagación
+  biologia(motor.escritura, motor.terreno, motor);   // 3. Reglas biológicas
+  intercambiar();                                    // 4. Doble búfer
   tick++;
 }
+
+const reservas = (c) => (c.existia ? `${Math.round(c.reservas)} · ${c.entregas} entregas` : '—');
 
 function capasVisibles() {
   return ui.visor.filter((c) => c.checked).map((c) => Number(c.dataset.capa));
@@ -92,6 +101,8 @@ function pintarPantalla() {
   ui.tick.textContent = tick;
   ui.negras.textContent = negras;
   ui.rojas.textContent = rojas;
+  ui.reservasNegras.textContent = reservas(motor.colonias.negra);
+  ui.reservasRojas.textContent = reservas(motor.colonias.roja);
 }
 
 function ciclo() {
@@ -118,7 +129,7 @@ function reiniciar() {
   pausar();
   tick = 0;
   generarMundo(motor.lectura);
-  motor.terreno.fill(0);
+  reiniciarEstado(P.RESERVA_INICIAL);
   pintarPantalla();
 }
 
@@ -166,7 +177,7 @@ for (const casilla of ui.visor) {
 prepararLienzo(lienzo);
 conectarLienzo(lienzo, () => {
   if (corriendo) return; // En marcha, el paso 1 del ciclo drena la cola
-  procesarCola(motor.lectura, motor.terreno);
+  procesarCola(motor.lectura, motor.terreno, motor);
   pintarPantalla();
 });
 

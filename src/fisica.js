@@ -1,36 +1,47 @@
 // =====================================================================
-// Física química (port de avanzar_tick del motor NumPy, Sprint 3)
-// Evaporación por tabla + difusión por convolución en cruz, con muros que absorben.
+// Física química (port de avanzar_tick y difundir del motor del Sprint 3)
+// Cada capa pierde 1 o 2 unidades por turno y la señal se propaga 2 pasos en cruz:
+// cada celda toma el máximo entre su valor y el de un vecino menos la pérdida
+// del kernel. Los muros no guardan ni dejan pasar química.
 // =====================================================================
-import { M, N, CELDAS, CAPAS, MURO, TABLA_EVAPORACION, KERNELS } from './constantes.js';
+import {
+  M, N, CELDAS, CAPAS, MURO, PASOS_DIFUSION, PERDIDAS_DIFUSION,
+  TABLAS_EVAPORACION, TABLAS_EVAPORACION_ARENA,
+} from './constantes.js';
 import { capa } from './tensor.js';
 
-// capa_limpia = evaporadas * libres
-const limpia = new Uint8Array(CELDAS);
+const a = new Uint8Array(CELDAS);
+const b = new Uint8Array(CELDAS);
 
-export function fisica(actual, siguiente) {
-  const suelo = capa(actual, 0);
-
+// suelo: capa física de la matriz actual; siguiente: ya trae la emisión de este turno.
+export function fisica(suelo, siguiente, terreno) {
   for (let c = 1; c < CAPAS; c++) {
-    const origen = capa(actual, c);
     const destino = capa(siguiente, c);
-    const { centro, lado } = KERNELS[c - 1];
+    const perdida = PERDIDAS_DIFUSION[c - 1];
+    const tabla = TABLAS_EVAPORACION[c - 1];
+    const tablaArena = TABLAS_EVAPORACION_ARENA[c - 1];
 
+    // Evaporación por tabla; corrección: la arena seca evapora más rápido.
     for (let i = 0; i < CELDAS; i++) {
-      limpia[i] = suelo[i] === MURO ? 0 : TABLA_EVAPORACION[origen[i]];
+      a[i] = suelo[i] === MURO ? 0 : (terreno[i] ? tablaArena : tabla)[destino[i]];
     }
 
-    // convolve(mode="constant", cval=0), redondeado: (suma + 50) // 100, recortado a 0..255
-    for (let y = 0; y < M; y++) {
-      for (let x = 0; x < N; x++) {
-        const i = y * N + x;
-        const vecinos =
-          (y > 0 ? limpia[i - N] : 0) + (y < M - 1 ? limpia[i + N] : 0) +
-          (x > 0 ? limpia[i - 1] : 0) + (x < N - 1 ? limpia[i + 1] : 0);
-        const v = Math.floor((centro * limpia[i] + lado * vecinos + 50) / 100);
-        // matriz_siguiente[:, :, 1:6] *= libres
-        destino[i] = suelo[i] === MURO ? 0 : v > 255 ? 255 : v;
+    let origen = a, salida = b;
+    for (let paso = 0; paso < PASOS_DIFUSION; paso++) {
+      for (let y = 0; y < M; y++) {
+        for (let x = 0; x < N; x++) {
+          const i = y * N + x;
+          if (suelo[i] === MURO) { salida[i] = 0; continue; }
+          let v = origen[i];
+          if (y > 0 && origen[i - N] - perdida > v) v = origen[i - N] - perdida;
+          if (y < M - 1 && origen[i + N] - perdida > v) v = origen[i + N] - perdida;
+          if (x > 0 && origen[i - 1] - perdida > v) v = origen[i - 1] - perdida;
+          if (x < N - 1 && origen[i + 1] - perdida > v) v = origen[i + 1] - perdida;
+          salida[i] = v;
+        }
       }
+      [origen, salida] = [salida, origen];
     }
+    destino.set(origen);
   }
 }

@@ -16,6 +16,8 @@ export const PINTAR = 0;
 export const BORRAR = 1;
 export const COLONIA = 2;
 export const QUIMICO = 3;
+// Una sola entidad por clic, sin importar el grosor (la araña de la API).
+export const PUNTUAL = 4;
 
 // Colonia: nido en la celda del clic y su reina debajo, como en los mapas del motor.
 const REINA_DE = { [NIDO_N]: REINA_N, [NIDO_R]: REINA_R };
@@ -45,7 +47,7 @@ export function conectarLienzo(canvas, alPintar) {
 
   canvas.addEventListener('pointermove', (ev) => {
     // Una colonia por clic: arrastrar no siembra más nidos
-    if (!ultima || pincel.modo === COLONIA) return;
+    if (!ultima || pincel.modo === COLONIA || pincel.modo === PUNTUAL) return;
     const actual = celda(ev);
     trazarLinea(ultima, actual);
     ultima = actual;
@@ -78,8 +80,10 @@ function trazarLinea([f0, c0], [f1, c1]) {
 
 // procesar_cola_acciones + _aplicar_accion. Se aplica sobre la matriz actual
 // antes del tick y mantiene el terreno de arena persistente.
-export function procesarCola(tensor, terreno) {
+export function procesarCola(tensor, terreno, est) {
   const fisica = capa(tensor, 0);
+  // Un cambio físico borra la carga y la memoria de la entidad que estaba ahí.
+  const olvidar = (i) => { est.carga[i] = 0; est.pasos[i] = 0; est.rumbo[i] = -1; };
   for (let k = 0; k < cola.length; k += 5) {
     const [fila, col, estado, modo, grosor] = cola.slice(k, k + 5);
     if (modo === COLONIA) {
@@ -87,6 +91,15 @@ export function procesarCola(tensor, terreno) {
       if (fila >= 1 && fila <= M - 3 && col >= 1 && col <= N - 2) {
         fisica[fila * N + col] = estado;
         fisica[(fila + 1) * N + col] = REINA_DE[estado];
+        olvidar(fila * N + col);
+        olvidar((fila + 1) * N + col);
+      }
+      continue;
+    }
+    if (modo === PUNTUAL) {
+      if (fila >= 0 && fila < M && col >= 0 && col < N) {
+        fisica[fila * N + col] = estado;
+        olvidar(fila * N + col);
       }
       continue;
     }
@@ -101,11 +114,13 @@ export function procesarCola(tensor, terreno) {
         if (modo === BORRAR) {
           for (let q = 0; q < CAPAS; q++) tensor[q * CELDAS + i] = 0;
           terreno[i] = 0;
+          olvidar(i);
         } else if (modo === QUIMICO) {
           // No se pintan feromonas dentro de un muro
           if (fisica[i] !== MURO) tensor[estado * CELDAS + i] = INTENSIDAD_FEROMONA_PINCEL;
         } else {
           fisica[i] = estado;
+          olvidar(i);
           if (estado === ARENA_SECA) terreno[i] = 1;
           else if (estado === MURO) {
             terreno[i] = 0;

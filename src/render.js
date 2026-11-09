@@ -3,7 +3,7 @@
 // Convierte la Capa 0 en colores y superpone las capas químicas elegidas.
 // =====================================================================
 import {
-  M, N, CELDAS, MASCARA_ESTADO, ARENA_SECA, ESTADOS,
+  M, N, CELDAS, MASCARA_ESTADO, ARENA_SECA, DEPREDADOR, ESTADOS,
   COLOR_RASTRO_COMIDA, COLOR_ALARMA, COLOR_FEROMONA_REAL, COLOR_NECROFEROMONAS, COLOR_RECLUTAMIENTO,
 } from './constantes.js';
 import { capa } from './tensor.js';
@@ -51,6 +51,19 @@ export function dibujar(tensor, visibles) {
       }
     }
     pixeles[i] = 0xff000000 | (b << 16) | (g << 8) | r;
+  }
+
+  // La araña ocupa una celda, pero se dibuja como un sprite de 3×3 centrado.
+  const arana = 0xff000000 | (AZUL[DEPREDADOR] << 16) | (VERDE[DEPREDADOR] << 8) | ROJO[DEPREDADOR];
+  for (let i = 0; i < CELDAS; i++) {
+    if ((fisica[i] & MASCARA_ESTADO) !== DEPREDADOR) continue;
+    const y = (i / N) | 0, x = i - y * N;
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const yy = y + dy, xx = x + dx;
+        if (yy >= 0 && yy < M && xx >= 0 && xx < N) pixeles[yy * N + xx] = arana;
+      }
+    }
   }
   contexto.putImageData(imagen, 0, 0);
 }

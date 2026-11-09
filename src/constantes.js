@@ -37,28 +37,55 @@ export const DEPREDADOR = 15;
 
 export const MASCARA_ESTADO = 0x0f;
 
-// --- Física química ----------------------------------------------------
-// Evaporación del 5 % por tabla: (v * 95) // 100 calculado en uint16.
-export const TABLA_EVAPORACION = Uint8Array.from({ length: 256 }, (_, v) => Math.floor((v * 95) / 100));
+// --- Física química (motor del Sprint 3 con recolección) ----------------
+// Cada turno la señal pierde 2 unidades y se propaga 2 pasos en cruz:
+// la celda toma el máximo entre su valor y el del vecino menos una pérdida.
+export const PASOS_DIFUSION = 2;
+// Pérdida por turno de cada capa química, de la 1 a la 5. El cuaderno usa 2 en todas.
+// Corrección: el rastro de comida pierde 1, para que un camino largo no se borre
+// antes de que la obrera llegue al nido.
+export const PERDIDAS_EVAPORACION = [1, 2, 2, 2, 2];
+// Corrección: la arena seca acelera la evaporación (4 unidades más por turno).
+export const PERDIDA_EXTRA_ARENA = 4;
+const tablaPerdida = (p) => Uint8Array.from({ length: 256 }, (_, v) => Math.max(0, v - p));
+export const TABLAS_EVAPORACION = PERDIDAS_EVAPORACION.map(tablaPerdida);
+export const TABLAS_EVAPORACION_ARENA = PERDIDAS_EVAPORACION.map((p) => tablaPerdida(p + PERDIDA_EXTRA_ARENA));
 
-// Kernels de difusión en cruz [0 l 0; l c l; 0 l 0] / 100.
-const KERNEL_LENTO = { centro: 80, lado: 5 };
-const KERNEL_MEDIO = { centro: 60, lado: 10 };
-const KERNEL_RAPIDO = { centro: 20, lado: 20 };
-// Uno por capa química, de la 1 a la 5.
-export const KERNELS = [KERNEL_MEDIO, KERNEL_RAPIDO, KERNEL_LENTO, KERNEL_MEDIO, KERNEL_MEDIO];
+// Kernels en cruz [0 l 0; l c l; 0 l 0]. La pérdida por paso es max(4, 12 - l // 2).
+const perdida = (lado) => Math.max(4, 12 - (lado >> 1));
+const KERNEL_LENTO = perdida(5);    // 10: feromona real
+const KERNEL_MEDIO = perdida(10);   // 7
+const KERNEL_RAPIDO = perdida(20);  // 4: alarma
+// Pérdida por paso de cada capa química, de la 1 a la 5.
+export const PERDIDAS_DIFUSION = [KERNEL_MEDIO, KERNEL_RAPIDO, KERNEL_LENTO, KERNEL_MEDIO, KERNEL_MEDIO];
 
-// --- Biología (parámetros del motor v6) -------------------------------
-export const PROB_EXPANSION_VENENO = 0.01;
-export const FRACCION_MAXIMA_VENENO = 0.08;   // Tope real de celdas con veneno
-export const PROB_MUERTE_VENENO = 0.125;
-export const PROB_MOVIMIENTO_DEPREDADOR = 0.8;
-export const PROB_NACIMIENTO = 0.05;
-export const FRACCION_SOLDADOS = 0.2;
-export const RADIO_RADAR_DEPREDADOR = 8;
-export const PROB_MOVIMIENTO_ARENA = 0.5;     // Entrar en arena seca cuesta más
-export const PROB_RETORNO_REAL = 0.2;
-export const INTENSIDAD_RASTRO_MOVIMIENTO = 110;
+// --- Biología ------------------------------------------------------------
+// Objeto mutable para poder comparar el port contra los valores del cuaderno.
+// Los marcados como "Corrección" difieren del cuaderno a propósito.
+export const P = {
+  PROB_EXPANSION_VENENO: 0.01,
+  FRACCION_MAXIMA_VENENO: 0.08,
+  PROB_MUERTE_VENENO: 0.125,
+  PROB_MOVIMIENTO_DEPREDADOR: 0.35,
+  PROB_ATAQUE_DEPREDADOR: 0.35,
+  MIN_SOLDADOS_CONTRA_ARANA: 3,     // Corrección: el cuaderno pide 4
+  PROB_NACIMIENTO: 0.05,
+  PROB_NACIMIENTO_MAXIMA: 0.25,     // Corrección: con reservas altas nacen más
+  FRACCION_SOLDADOS: 0.2,
+  RADIO_RADAR_DEPREDADOR: 8,
+  PROB_MOVIMIENTO_ARENA: 0.5,
+  PROB_RETORNO_REAL: 0.03,          // Corrección: el cuaderno usa 0.2
+  RADIO_BUSQUEDA_COMIDA: 60,        // Corrección: el cuaderno usa 16
+  RESERVA_INICIAL: 150,             // Corrección: el cuaderno usa 100
+  DESCENSO_RASTRO: 2,               // Corrección: el cuaderno usa 3 por paso
+  RESERVA_MINIMA: 40,               // Corrección: no gastar en nacimientos lo que sostiene al nido
+  CONSUMO_NIDO: 0.2,
+  VALOR_COMIDA: 20,
+  COSTO_NACIMIENTO: 5,
+  LIMITE_HAMBRE: 300,
+  PROB_MUERTE_HUERFANA: 0.01,       // Corrección: sin nido ni reina, las hormigas se extinguen
+  ARANA_ATACA_REINAS: true,         // Corrección: el veneno ya las mataba
+};
 export const INTENSIDAD_FEROMONA_PINCEL = 220;
 
 // Vecindad de Moore en el orden del motor: arriba, abajo, izq, der y diagonales.
@@ -87,7 +114,7 @@ export const ESTADOS = [
   { id: OBRERA_R, nombre: 'Obrera roja', color: '#ff2d2d' },
   { id: SOLDADO_R, nombre: 'Soldado rojo', color: '#ffa07a' },
   { id: BASURERO, nombre: 'Basurero', color: '#4e342e' },
-  { id: DEPREDADOR, nombre: 'Depredador', color: '#22d3ee' },
+  { id: DEPREDADOR, nombre: 'Depredador (araña)', color: '#22d3ee' },
 ];
 export const COLOR_RASTRO_COMIDA = '#38bdf8';
 export const COLOR_ALARMA = '#ffe14d';
